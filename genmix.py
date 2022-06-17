@@ -4,11 +4,10 @@ import random
 import numpy as np
 import scipy as sp
 import scipy.signal
-import fluidsynth
 import pretty_midi
 import tensorflow as tf
 import sympy
-seed = 12345
+seed = 4
 
 
 FP_SF2_PATH = "/usr/share/soundfonts/freepats-general-midi.sf2"
@@ -67,6 +66,7 @@ def generate_mixes(midi, inst_dict, sf2_path, n=1000):
 
     return samples_ary, inst_ary
 
+
 def generate_mix(dataset_entry, sf2_path=FP_SF2_PATH):
     """
     This is the heavy lifting inner function that takes a midi object as
@@ -88,8 +88,10 @@ def generate_mix(dataset_entry, sf2_path=FP_SF2_PATH):
     # and return a spectrogram
     return sp.signal.stft(samples, fs=44100)
 
-def generate_training_set(midi_directory="./shapenote_midi/",
-        sf2_path=FP_SF2_PATH, insts=freepats_inst_dict, n=1000):
+
+def generate_labels(midi_directory="./shapenote_midi/",
+                    sf2_path=FP_SF2_PATH, insts=freepats_inst_dict,
+                    n=10000):
     """
     This function basically takes a directory of midi files, calls
     generate_mixes() on all of them, and assembles the results into something
@@ -101,44 +103,44 @@ def generate_training_set(midi_directory="./shapenote_midi/",
     # Initiate a rng instance with a seed for redproducibility
     # 4 is chosen by a fair dice roll, guaranteed to be random :p
     # https://xkcd.com/221/
-    rng = np.random.default_rng(4)
+    rng = np.random.default_rng(seed)
     n_files = len(files)
     # variations are expensive to compute so make a dictionary for them
     variations = {}
     # list where we will collate our results
     training_objects = []
     for i, file in enumerate(files):
-        print(str(i) + " out of " + str(n_files)) 
+        print(str(i) + " out of " + str(n_files))
         current_midi = pretty_midi.PrettyMIDI(file)
         n_insts = len(current_midi.instruments)
         # first check if we have already computed the variations for this
         # combination of instrument list and instrument number
         if n_insts not in variations:
             # This function makes a list of all possible unique variations of
-            # n_insts instruments selected from insts, the avaialble instruments 
+            # n_insts instruments selected from insts, the avaialble instrument
             # of the current sound font.
             var_gen = sympy.utilities.iterables.variations(insts.keys(),
                                                            n_insts)
             variations[n_insts] = np.array(list(var_gen))
 
         # choose n of those variations randomly (but reproducably)
-        my_variations = rng.choice(variations[n_insts], size=n, replace=False)
-        # my_variations = variations[n_insts][:n]
-        
+        if n == 'all':
+            my_variations = variations[n_insts]
+            rng.shuffle(my_variations)
+        else:
+            my_variations = rng.choice(variations[n_insts], size=n,
+                                       replace=False)
         training_objects += [[file, i] for i in my_variations]
+    return training_objects
 
     # Now the magic begins! cast this to a TensorFlow Dataset
-    dataset = tf.data.Dataset.from_tensor_slices(training_objects)
-    dataset = dataset.map(generate_mix, num_parallel_calls=tf.data.AUTOTUNE, 
-                deterministic=False)
-    dataset = dataset.batch(10)
-    dataset = dataset.prefetch(5)
-    return dataset
-
-    
+    # dataset = tf.data.Dataset.from_tensor_slices(training_objects)
+    # dataset = dataset.map(generate_mix, num_parallel_calls=tf.data.AUTOTUNE,
+    #             deterministic=False)
+    # dataset = dataset.batch(10)
+    # dataset = dataset.prefetch(5)
+    # return dataset
 
 
 
 
-
- 
